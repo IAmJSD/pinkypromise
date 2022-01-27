@@ -35,7 +35,7 @@ promises := []*promise.Promise[string]{
     NewResolved("hello"),
     NewResolved("world"),
 }
-iterator := promise.Iterator()
+iterator := promise.Iterator(...promises)
 for s, end, err := iterator(); !end; s, end, err = iterator() {
     if err != nil {
         // There was an error here that we should handle.
