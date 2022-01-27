@@ -1,9 +1,34 @@
 package promise
 
 import (
-	"container/list"
 	"sync"
 )
+
+type element struct {
+	value interface{}
+	next  *element
+}
+
+type stack struct {
+	start *element
+	end   *element
+}
+
+func (l *stack) push(x interface{}) *element {
+	e := &element{value: x}
+	if l.start == nil {
+		l.start = e
+	} else {
+		l.end.next = e
+	}
+	l.end = e
+	return e
+}
+
+func (l *stack) format() {
+	l.start = nil
+	l.end = nil
+}
 
 // Promise is a promise that can be resolved or rejected.
 // Note that manually creating this will result in blank values.
@@ -19,15 +44,15 @@ type Promise[T any] struct {
 	// ensures that we do not cause undefined behaviour by making things run in parallel when done
 	doneMu sync.Mutex
 
-	// defines the then list.
-	thenList *list.List
-
-	// defines the error list.
-	errorList *list.List
-
 	// Defines the result of the promise.
 	res T
 	err error
+
+	// defines the then list.
+	thenStack stack
+
+	// defines the error list.
+	errorStack stack
 }
 
 // Call the function and handle the results.
@@ -40,23 +65,23 @@ func (p *Promise[T]) call(f func() (T, error)) {
 	p.notDone = false
 	p.err = err
 	p.res = res
-	thenList := p.thenList
-	p.thenList = nil
-	errorList := p.errorList
-	p.errorList = nil
+	thenStack := p.thenStack
+	errorStack := p.errorStack
+	p.thenStack.format()
+	p.errorStack.format()
 	p.lock.Unlock()
 
 	// Lock and run handlers.
 	p.doneMu.Lock()
 	defer p.doneMu.Unlock()
 	if err != nil {
-		for s := errorList.Front(); s != nil; s = s.Next() {
-			s.Value.(func(error))(err)
+		for s := errorStack.start; s != nil; s = s.next {
+			s.value.(func(error))(err)
 		}
 		return
 	}
-	for s := thenList.Front(); s != nil; s = s.Next() {
-		s.Value.(func(T))(res)
+	for s := thenStack.start; s != nil; s = s.next {
+		s.value.(func(T))(res)
 	}
 }
 
@@ -81,9 +106,15 @@ func (p *Promise[T]) Resolve() *PromiseResolution[T] {
 
 // NewFn is used to create a new function promise.
 func NewFn[T any](f func() (T, error)) *Promise[T] {
-	p := &Promise[T]{notDone: true, errorList: list.New(), thenList: list.New()}
+	p := &Promise[T]{notDone: true}
 	go p.call(f)
 	return p
+}
+
+// NewFnWithArg behaves the same as NewFn but allows you to pass in an argument.
+// This is useful for functions that take in an argument or where you want to pass in a context.
+func NewFnWithArg[T any, X any](arg T, f func(T) (X, error)) *Promise[X] {
+	return NewFn(func() (X, error) { return f(arg) })
 }
 
 // NewResolved is used to create a new resolved promise.
@@ -108,13 +139,13 @@ func Then[T any, X any](p *Promise[T], f func(T) (X, error)) *Promise[X] {
 	// If we are not done, we should add to the handlers.
 	if !done {
 		// Add the then handler.
-		newPromise := &Promise[X]{notDone: true, errorList: list.New(), thenList: list.New()}
+		newPromise := &Promise[X]{notDone: true}
 		thenHn := func(res T) {
 			newPromise.call(func() (X, error) {
 				return f(res)
 			})
 		}
-		p.thenList.PushBack(thenHn)
+		p.thenStack.push(thenHn)
 
 		// Add the catch handler.
 		catchHn := func(err error) {
@@ -123,7 +154,7 @@ func Then[T any, X any](p *Promise[T], f func(T) (X, error)) *Promise[X] {
 				return
 			})
 		}
-		p.errorList.PushBack(catchHn)
+		p.errorStack.push(catchHn)
 
 		// Now unlock the promise.
 		p.lock.Unlock()
@@ -163,7 +194,7 @@ func Catch[T any, X any](p *Promise[T], f func(error) (X, error)) *Promise[X] {
 	err := p.err
 
 	// Defines the new promise.
-	newPromise := &Promise[X]{notDone: true, errorList: list.New(), thenList: list.New()}
+	newPromise := &Promise[X]{notDone: true}
 
 	// If we are not done, we should add to the handlers.
 	if !done {
@@ -173,7 +204,7 @@ func Catch[T any, X any](p *Promise[T], f func(error) (X, error)) *Promise[X] {
 				return f(err)
 			})
 		}
-		p.errorList.PushBack(catchHn)
+		p.errorStack.push(catchHn)
 
 		// Now unlock the origin promise.
 		p.lock.Unlock()

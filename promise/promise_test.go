@@ -113,7 +113,7 @@ func TestNewFn(t *testing.T) {
 			aLock = sync.Mutex{}
 		)
 		p.lock.Lock()
-		p.thenList.PushBack(func(s string) {
+		p.thenStack.push(func(s string) {
 			if s != "hello world" {
 				t.Error("result is wrong")
 			}
@@ -121,7 +121,7 @@ func TestNewFn(t *testing.T) {
 			a = append(a, 1)
 			aLock.Unlock()
 		})
-		p.thenList.PushBack(func(s string) {
+		p.thenStack.push(func(s string) {
 			if s != "hello world" {
 				t.Error("result is wrong")
 			}
@@ -129,7 +129,7 @@ func TestNewFn(t *testing.T) {
 			a = append(a, 2)
 			aLock.Unlock()
 		})
-		p.thenList.PushBack(func(s string) {
+		p.thenStack.push(func(s string) {
 			if s != "hello world" {
 				t.Error("result is wrong")
 			}
@@ -170,7 +170,7 @@ func TestNewFn(t *testing.T) {
 			aLock = sync.Mutex{}
 		)
 		p.lock.Lock()
-		p.errorList.PushBack(func(e error) {
+		p.errorStack.push(func(e error) {
 			if e.Error() != "hello world" {
 				t.Error("result is wrong")
 			}
@@ -178,7 +178,7 @@ func TestNewFn(t *testing.T) {
 			a = append(a, 1)
 			aLock.Unlock()
 		})
-		p.errorList.PushBack(func(e error) {
+		p.errorStack.push(func(e error) {
 			if e.Error() != "hello world" {
 				t.Error("result is wrong")
 			}
@@ -186,7 +186,7 @@ func TestNewFn(t *testing.T) {
 			a = append(a, 2)
 			aLock.Unlock()
 		})
-		p.errorList.PushBack(func(e error) {
+		p.errorStack.push(func(e error) {
 			if e.Error() != "hello world" {
 				t.Error("result is wrong")
 			}
@@ -218,6 +218,24 @@ func TestNewFn(t *testing.T) {
 			t.Error("then handlers not invoked in right order")
 		}
 	})
+}
+
+func TestNewFnWithArg(t *testing.T) {
+	p := NewFnWithArg("hello world", func(s string) (int, error) {
+		if s != "hello world" {
+			return 0, errors.New("value wrong")
+		}
+		return 1, nil
+	})
+	time.Sleep(time.Millisecond)
+	res := p.Resolve()
+	if res.Error == nil {
+		if res.Result != 1 {
+			t.Error("result wrong")
+		}
+	} else {
+		t.Error("errored")
+	}
 }
 
 func TestNewResolved(t *testing.T) {
